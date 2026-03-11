@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DashCam">
+<title>DashCam</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Oswald:wght@400;700&display=swap');
+:root {
+  --red: #ff1a1a; --amber: #ffb800; --green: #00ff88;
+  --bg: #0a0a0a; --panel: #111; --border: #222; --text: #e8e8e8; --muted: #555;
+  --mono: 'Share Tech Mono', monospace; --display: 'Oswald', sans-serif;
+  --safe-top: env(safe-area-inset-top, 44px); --safe-bottom: env(safe-area-inset-bottom, 34px);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; user-select: none; -webkit-user-select: none; }
+#app { display: flex; flex-direction: column; width: 100%; height: 100%; padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); }
+
+/* TOP BAR */
+#topbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: rgba(10,10,10,.95); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+#logo { font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: 3px; }
+#logo span { color: var(--red); }
+#rec-ind { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 2px; color: var(--muted); }
+#rec-ind.on { color: var(--red); }
+#rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+#rec-ind.on #rec-dot { background: var(--red); animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+#clip-count-wrap { font-size: 11px; letter-spacing: 1px; color: var(--muted); }
+#clip-count-wrap span { color: var(--amber); }
+
+/* VIEWPORT */
+#viewport { position: relative; flex: 1; background: #000; overflow: hidden; }
+#video { position: absolute; width: 1px; height: 1px; opacity: 0; }
+#preview-canvas { display: block; width: 100%; height: 100%; }
+#viewport.preview-off #preview-canvas { opacity: 0; }
+#no-cam { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 12px; letter-spacing: 2px; pointer-events: none; }
+#no-cam svg { opacity: .15; }
+#viewport:not(.preview-off) #no-cam { display: none; }
+#buf-bar-wrap { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,.05); }
+#buf-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--red), var(--amber)); transition: width .5s linear; }
+#flash-el { position: absolute; inset: 0; opacity: 0; border: 3px solid var(--red); pointer-events: none; }
+#flash-el.go { animation: flash .6s ease-out forwards; }
+@keyframes flash { 0%{opacity:.8} 100%{opacity:0} }
+#countdown-el { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
+#countdown-el span { font-family: var(--display); font-size: 80px; font-weight: 700; color: var(--red); text-shadow: 0 0 40px rgba(255,26,26,.8); }
+#clips-fab { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.75); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 9px; letter-spacing: 1px; padding: 5px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px; backdrop-filter: blur(4px); }
+#fab-count { background: var(--red); color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 8px; display: none; }
+#fab-count.show { display: block; }
+
+/* CONTROLS */
+#controls { background: var(--panel); border-top: 1px solid var(--border); padding: 14px 16px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
+#ctrl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ctrl-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ctrl-lbl { font-size: 9px; letter-spacing: 2px; color: var(--muted); }
+.tog { position: relative; width: 50px; height: 26px; cursor: pointer; }
+.tog input { display: none; }
+.tog-track { position: absolute; inset: 0; background: #333; border-radius: 13px; border: 1px solid #444; transition: background .3s; }
+.tog input:checked + .tog-track { background: var(--green); border-color: var(--green); }
+.tog-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: transform .3s; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.tog input:checked ~ .tog-thumb { transform: translateX(24px); }
+.icon-btn { background: #1a1a1a; border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 8px 14px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.icon-btn:active { background: #222; }
+#rec-btn { background: #1a0000; border: 1px solid #330000; color: var(--red); font-family: var(--display); font-size: 12px; letter-spacing: 3px; font-weight: 700; padding: 10px 18px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; max-width: 120px; transition: all .2s; }
+#rec-btn.on { border-color: var(--red); box-shadow: 0 0 14px rgba(255,26,26,.2); }
+#rec-dot2 { width: 10px; height: 10px; border-radius: 50%; background: var(--red); opacity: .35; }
+#rec-btn.on #rec-dot2 { opacity: 1; animation: blink 1s infinite; }
+#rec-btn:active { transform: scale(.97); }
+#inc-btn { width: 100%; height: 70px; background: radial-gradient(ellipse at 50% 40%, #ff3333, #cc0000, #800000); border: none; border-radius: 14px; cursor: pointer; font-family: var(--display); font-size: 20px; font-weight: 700; letter-spacing: 6px; color: #fff; text-shadow: 0 0 20px rgba(255,100,100,.6); box-shadow: 0 4px 20px rgba(255,26,26,.4), inset 0 1px 0 rgba(255,180,180,.2); transition: all .1s; }
+#inc-btn:active { transform: scale(.97); box-shadow: 0 2px 10px rgba(255,26,26,.7), 0 0 0 2px var(--red); }
+#inc-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+#inc-lbl { font-size: 9px; letter-spacing: 2px; color: var(--muted); text-align: center; }
+
+/* TOAST */
+#toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: rgba(0,0,0,.93); border: 1px solid var(--border); border-radius: 12px; padding: 20px 28px; font-size: 13px; letter-spacing: 1px; text-align: center; z-index: 400; max-width: 85%; display: none; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+#toast.show { display: block; animation: pop-in .2s ease-out; }
+@keyframes pop-in { from{opacity:0;transform:translate(-50%,-50%) scale(.9)} to{opacity:1;transform:translate(-50%,-50%) scale(1)} }
+#toast-icon { font-size: 26px; margin-bottom: 8px; }
+#toast-msg { line-height: 1.6; }
+
+/* SAVING */
+#saving { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px; z-index: 300; backdrop-filter: blur(4px); }
+#saving.show { display: flex; }
+#saving-ring { width: 56px; height: 56px; border: 3px solid #222; border-top-color: var(--red); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+#saving-label { font-family: var(--display); font-size: 14px; letter-spacing: 4px; }
+#saving-sub { font-size: 10px; color: var(--muted); letter-spacing: 2px; }
+
+/* CLIPS PANEL */
+#clips-panel { position: fixed; inset: 0; background: rgba(0,0,0,.97); z-index: 350; display: none; flex-direction: column; padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); }
+#clips-panel.open { display: flex; }
+#clips-hdr { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+#clips-title { font-family: var(--display); font-size: 16px; font-weight: 700; letter-spacing: 3px; }
+#clips-close { background: #1a1a1a; border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 12px; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+#clips-body { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+#clips-empty { text-align: center; color: var(--muted); font-size: 12px; letter-spacing: 1px; padding: 40px 0; }
+.clip-item { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.clip-info { flex: 1; overflow: hidden; }
+.clip-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clip-meta { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.clip-addr { font-size: 10px; color: var(--green); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clip-btns { display: flex; gap: 8px; flex-shrink: 0; }
+.clip-btn { background: #1a1a1a; border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 10px; padding: 5px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.clip-btn.share { border-color: #1a3355; color: #5599ff; }
+.clip-btn.icloud { border-color: #1a2b1a; color: var(--green); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <div id="logo">DASH<span>CAM</span></div>
+    <div id="rec-ind"><div id="rec-dot"></div><span id="rec-status">STANDBY</span></div>
+    <div id="clip-count-wrap">CLIPS: <span id="clip-num">0</span></div>
+  </div>
+
+  <div id="viewport" class="preview-off">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="preview-canvas"></canvas>
+    <div id="no-cam">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+        <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+      </svg>
+      CAMERA INACTIVE
+    </div>
+    <div id="buf-bar-wrap"><div id="buf-bar"></div></div>
+    <div id="flash-el"></div>
+    <div id="countdown-el"><span id="countdown-num"></span></div>
+    <div id="clips-fab" onclick="openClips()">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M15 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      CLIPS <span id="fab-count">0</span>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div id="ctrl-row">
+      <div class="ctrl-col">
+        <label class="tog">
+          <input type="checkbox" id="prev-chk" onchange="setPreview(this.checked)">
+          <div class="tog-track"></div><div class="tog-thumb"></div>
+        </label>
+        <div class="ctrl-lbl">PREVIEW</div>
+      </div>
+      <button class="icon-btn" onclick="flipCam()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
+          <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+        </svg>
+        FLIP
+      </button>
+      <button id="rec-btn" onclick="toggleRec()">
+        <div id="rec-dot2"></div>
+        <span id="rec-lbl">START</span>
+      </button>
+    </div>
+    <button id="inc-btn" onclick="onIncident()" disabled>&#11044; INCIDENT</button>
+    <div id="inc-lbl">PRESS WHEN INCIDENT OCCURS &mdash; SAVES CLIP WITH LOCATION</div>
+  </div>
+
+</div>
+
+<div id="saving"><div id="saving-ring"></div><div id="saving-label">SAVING CLIP</div><div id="saving-sub">PLEASE WAIT</div></div>
+<div id="toast"><div id="toast-icon"></div><div id="toast-msg"></div></div>
+
+<div id="clips-panel">
+  <div id="clips-hdr">
+    <div id="clips-title">SAVED CLIPS</div>
+    <button id="clips-close" onclick="closeClips()">&#x2715; CLOSE</button>
+  </div>
+  <div id="clips-body"><div id="clips-empty">NO CLIPS SAVED YET</div></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONFIGURATION
+// ─────────────────────────────────────────────
+var BEFORE_SECS = 10;
+var AFTER_SECS  = 5;
+var SEG_SECS    = 22;   // segment length > BEFORE+AFTER so one segment always covers window
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+var mediaStream    = null;
+var canvasStream   = null;
+var recorder       = null;
+var isRecording    = false;
+var facingMode     = 'environment';
+var segments       = [];   // [{blob, startMs, endMs}]
+var segTimer       = null;
+var incidentActive = false;
+var incidentMs     = null;
+var afterTimer     = null;
+var geoPromise     = null;
+var incidentMR     = null; // the recorder that captures the incident segment
+var countdownTimer = null;
+var clips          = [];
+var toastTimer     = null;
+var wakeLock       = null;
+var gpsLat         = null;
+var gpsLng         = null;
+var gpsSpeed       = 0;
+var gpsAddress     = '';    // reverse geocoded, updated on first fix + each incident
+var gpsFirstFix    = false;
+var drawRAF        = null;
+
+// ─────────────────────────────────────────────
+// CANVAS SETUP
+// ─────────────────────────────────────────────
+var video  = document.getElementById('video');
+var canvas = document.getElementById('preview-canvas');
+var ctx    = canvas.getContext('2d');
+
+// Set canvas to fixed HD — gets CSS-scaled by #preview-canvas { width:100%; height:100% }
+canvas.width  = 1280;
+canvas.height = 720;
+
+// ─────────────────────────────────────────────
+// DRAW LOOP
+// ─────────────────────────────────────────────
+function drawLoop() {
+  drawRAF = requestAnimationFrame(drawLoop);
+
+  var cw = canvas.width;
+  var ch = canvas.height;
+
+  // 1. Camera feed or black
+  if (mediaStream && video.readyState >= 2) {
+    if (facingMode === 'user') {
+      ctx.save();
+      ctx.translate(cw, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, cw, ch);
+      ctx.restore();
+    } else {
+      ctx.drawImage(video, 0, 0, cw, ch);
+    }
+  } else {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = '18px "Share Tech Mono",monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CAMERA INACTIVE', cw / 2, ch / 2);
+    ctx.textAlign = 'left';
+  }
+
+  // 2. Scanlines
+  ctx.fillStyle = 'rgba(0,0,0,0.03)';
+  for (var sy = 0; sy < ch; sy += 4) {
+    ctx.fillRect(0, sy, cw, 2);
+  }
+
+  // 3. Corner brackets
+  ctx.strokeStyle = 'rgba(255,26,26,0.5)';
+  ctx.lineWidth = 2.5;
+  var bs = 36;
+  var corners = [[12,12,1,1],[cw-12,12,-1,1],[12,ch-12,1,-1],[cw-12,ch-12,-1,-1]];
+  for (var ci = 0; ci < corners.length; ci++) {
+    var cx2 = corners[ci][0], cy2 = corners[ci][1], dx = corners[ci][2], dy = corners[ci][3];
+    ctx.beginPath();
+    ctx.moveTo(cx2 + dx*bs, cy2);
+    ctx.lineTo(cx2, cy2);
+    ctx.lineTo(cx2, cy2 + dy*bs);
+    ctx.stroke();
+  }
+
+  // 4. Clock
+  var now  = new Date();
+  var hms  = now.toTimeString().slice(0, 8);
+  var date = now.toLocaleDateString('en-GB', {weekday:'short', day:'2-digit', month:'short', year:'numeric'});
+
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.beginPath();
+  ctx.roundRect(10, 10, 178, 52, 4);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 22px "Share Tech Mono",monospace';
+  ctx.fillText(hms, 18, 36);
+  ctx.fillStyle = '#aaaaaa';
+  ctx.font = '11px "Share Tech Mono",monospace';
+  ctx.fillText(date, 18, 53);
+
+  // 5. Speed box (top-right)
+  var spd = gpsSpeed !== null ? String(gpsSpeed) : '--';
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.beginPath();
+  ctx.roundRect(cw - 82, 10, 72, 52, 4);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffb800';
+  ctx.font = 'bold 26px "Share Tech Mono",monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(spd, cw - 46, 38);
+  ctx.fillStyle = '#888';
+  ctx.font = '10px "Share Tech Mono",monospace';
+  ctx.fillText('KM/H', cw - 46, 53);
+  ctx.textAlign = 'left';
+
+  // 6. REC indicator
+  if (isRecording && Math.floor(Date.now() / 500) % 2 === 0) {
+    ctx.fillStyle = '#ff1a1a';
+    ctx.beginPath();
+    ctx.arc(cw - 12, 18, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 7. GPS / address bar (bottom)
+  var addrText = '';
+  if (gpsAddress) {
+    addrText = gpsAddress;
+  } else if (gpsLat !== null) {
+    addrText = gpsLat.toFixed(5) + ', ' + gpsLng.toFixed(5);
+  } else {
+    addrText = 'Acquiring GPS...';
+  }
+  var barH = 24, barY = ch - barH - 12, barW = cw - 36;
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.beginPath();
+  ctx.roundRect(18, barY, barW, barH, 3);
+  ctx.fill();
+  ctx.fillStyle = '#00ff88';
+  ctx.font = '12px "Share Tech Mono",monospace';
+  // clip text to bar width
+  var maxChars = Math.floor((barW - 16) / 8);
+  var addrClipped = addrText.length > maxChars ? addrText.slice(0, maxChars - 1) + '...' : addrText;
+  ctx.fillText(addrClipped, 26, barY + 16);
+}
+
+drawLoop();
+
+// ─────────────────────────────────────────────
+// GEOLOCATION
+// ─────────────────────────────────────────────
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(function(pos) {
+    gpsLat   = pos.coords.latitude;
+    gpsLng   = pos.coords.longitude;
+    gpsSpeed = pos.coords.speed !== null ? Math.round(pos.coords.speed * 3.6) : 0;
+    // Geocode once on first fix so HUD shows street name
+    if (!gpsFirstFix) {
+      gpsFirstFix = true;
+      reverseGeocode(gpsLat, gpsLng).then(function(addr) { gpsAddress = addr; });
+    }
+  }, function() {}, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+}
+
+// Reverse geocode — only called at moment of incident press, returns promise of string
+function reverseGeocode(lat, lng) {
+  var url = 'https://api.bigdatacloud.net/data/reverse-geocode-client'
+    + '?latitude=' + lat + '&longitude=' + lng + '&localityLanguage=en';
+  return fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var parts = [];
+      var road = d.street || d.streetName || '';
+      var num  = d.streetNumber || '';
+      var sub  = d.locality || d.neighbourhood || '';
+      var city = d.city || d.principalSubdivision || '';
+      if (road && num)               parts.push(road + ' ' + num);
+      else if (road)                 parts.push(road);
+      if (sub && sub !== city)       parts.push(sub);
+      if (city)                      parts.push(city);
+      return parts.join(', ') || (lat.toFixed(5) + ', ' + lng.toFixed(5));
+    })
+    .catch(function() {
+      return lat.toFixed(5) + ', ' + lng.toFixed(5);
+    });
+}
+
+// ─────────────────────────────────────────────
+// CAMERA
+// ─────────────────────────────────────────────
+function startCam() {
+  return new Promise(function(resolve) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('X', location.protocol === 'http:' ? 'HTTPS required for camera' : 'Camera API not available');
+      return resolve(false);
+    }
+    function tryGet(constraints) {
+      return navigator.mediaDevices.getUserMedia(constraints);
+    }
+    if (mediaStream) stopCam();
+
+    tryGet({ video: { facingMode: facingMode }, audio: true })
+      .catch(function() { return tryGet({ video: true, audio: true }); })
+      .then(function(stream) {
+        mediaStream = stream;
+        video.srcObject = stream;
+        return video.play();
+      })
+      .then(function() { resolve(true); })
+      .catch(function(err) {
+        var msg = 'Camera error';
+        if (err.name === 'NotAllowedError') msg = 'Camera denied.\nSettings > Safari > Camera > Allow';
+        else if (err.name === 'NotReadableError') msg = 'Camera in use by another app';
+        else msg = err.name + ': ' + err.message;
+        toast('X', msg);
+        resolve(false);
+      });
+  });
+}
+
+function stopCam() {
+  if (mediaStream) { mediaStream.getTracks().forEach(function(t) { t.stop(); }); mediaStream = null; }
+  video.srcObject = null;
+}
+
+function flipCam() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  var wasRec = isRecording;
+  if (wasRec) stopRec();
+  if (mediaStream) startCam().then(function() { if (wasRec) beginRec(); });
+}
+
+function setPreview(on) {
+  document.getElementById('viewport').classList.toggle('preview-off', !on);
+}
+
+// ─────────────────────────────────────────────
+// MIME
+// ─────────────────────────────────────────────
+function bestMime() {
+  var list = [
+    'video/mp4;codecs=avc1,mp4a.40.2',
+    'video/mp4;codecs=avc1',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  for (var i = 0; i < list.length; i++) {
+    if (MediaRecorder.isTypeSupported(list[i])) return list[i];
+  }
+  return '';
+}
+
+// ─────────────────────────────────────────────
+// RECORDING — rolling segments
+// ─────────────────────────────────────────────
+function toggleRec() {
+  if (isRecording) { stopRec(); }
+  else { startCam().then(function(ok) { if (ok) beginRec(); }); }
+}
+
+function beginRec() {
+  segments = [];
+  isRecording = true;
+  incidentActive = false;
+
+  // Capture canvas stream + add audio from camera
+  canvasStream = canvas.captureStream(30);
+  if (mediaStream) {
+    mediaStream.getAudioTracks().forEach(function(t) { canvasStream.addTrack(t); });
+  }
+
+  startSeg();
+  setRecUI(true);
+  reqWakeLock();
+}
+
+function stopRec() {
+  clearTimeout(segTimer); segTimer = null;
+  clearTimeout(afterTimer); afterTimer = null;
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+  recorder = null; canvasStream = null;
+  isRecording = false; incidentActive = false;
+  setRecUI(false);
+  document.getElementById('buf-bar').style.width = '0';
+  document.getElementById('inc-btn').disabled = true;
+  stopCountdown();
+}
+
+function setRecUI(on) {
+  var rb = document.getElementById('rec-btn');
+  var ri = document.getElementById('rec-ind');
+  rb.classList.toggle('on', on);
+  ri.classList.toggle('on', on);
+  document.getElementById('rec-status').textContent = on ? 'REC' : 'STANDBY';
+  document.getElementById('rec-lbl').textContent = on ? 'STOP' : 'START';
+  document.getElementById('inc-btn').disabled = !on;
+}
+
+function makeMR(stream) {
+  var mime = bestMime();
+  try { return new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4000000 }); }
+  catch(e) {
+    try { return new MediaRecorder(stream, { videoBitsPerSecond: 4000000 }); }
+    catch(e2) { return new MediaRecorder(stream); }
+  }
+}
+
+function startSeg() {
+  if (!canvasStream || incidentActive) return;
+  var mr = makeMR(canvasStream);
+  var segStart = Date.now();
+  mr._segStart = segStart;
+  recorder = mr;
+
+  // ondataavailable fires AFTER onstop on iOS — we must handle blob here, not in onstop
+  mr.ondataavailable = function(e) {
+    if (!e.data || e.data.size < 200) return;
+    var seg = { blob: e.data, startMs: segStart, endMs: Date.now() };
+    segments.push(seg);
+    if (segments.length > 3) segments.shift(); // keep last 3
+    updateBufBar();
+  };
+
+  mr.start(); // no timeslice = one complete clean blob per segment
+
+  segTimer = setTimeout(function() {
+    if (mr.state === 'recording') {
+      mr.onstop = function() { if (isRecording && !incidentActive) startSeg(); };
+      mr.stop();
+    }
+  }, SEG_SECS * 1000);
+}
+
+function updateBufBar() {
+  if (!segments.length) return;
+  var span = Date.now() - segments[0].startMs;
+  var pct  = Math.min(100, span / ((BEFORE_SECS + AFTER_SECS) * 1000) * 100);
+  document.getElementById('buf-bar').style.width = pct + '%';
+}
+
+// ─────────────────────────────────────────────
+// INCIDENT
+// ─────────────────────────────────────────────
+function onIncident() {
+  if (!isRecording || incidentActive) return;
+  incidentActive = true;
+  incidentMs     = Date.now();
+
+  // Geocode immediately — 5s to resolve before we need it
+  var snapLat = gpsLat, snapLng = gpsLng;
+  geoPromise = (snapLat !== null) ? reverseGeocode(snapLat, snapLng) : Promise.resolve(null);
+
+  // Stop the segment rotation timer — let current segment run through the after-window
+  clearTimeout(segTimer); segTimer = null;
+
+  flashViewport();
+  startCountdown();
+
+  afterTimer = setTimeout(function() {
+    stopCountdown();
+    if (!recorder || recorder.state === 'inactive') {
+      doFinalize();
+      return;
+    }
+    // Key fix: ondataavailable fires AFTER onstop on iOS.
+    // So we set ondataavailable to call finalize, not onstop.
+    var incSegStart = recorder._segStart || (incidentMs - BEFORE_SECS * 1000);
+    recorder.ondataavailable = function(e) {
+      if (e.data && e.data.size > 200) {
+        var seg = { blob: e.data, startMs: incSegStart, endMs: Date.now() };
+        segments.push(seg);
+      }
+      doFinalize();
+    };
+    recorder.stop();
+  }, AFTER_SECS * 1000);
+}
+
+function doFinalize() {
+  // geocodePromise was already started 5s ago — just await it
+  Promise.all([geoPromise || Promise.resolve(null)])
+    .then(function(results) { finalizeClip(results[0]); });
+}
+
+function finalizeClip(resolvedAddr) {
+  showSaving('FINDING BEST SEGMENT...');
+
+  var windowStart = incidentMs - BEFORE_SECS * 1000;
+  var windowEnd   = incidentMs + AFTER_SECS   * 1000;
+
+  // Find the segment that best covers the incident window
+  var best = null;
+  for (var i = segments.length - 1; i >= 0; i--) {
+    var s = segments[i];
+    if (s.startMs <= windowStart && s.endMs >= windowEnd) { best = s; break; }
+  }
+  if (!best) {
+    // fallback: segment that contains the incident timestamp
+    for (var j = segments.length - 1; j >= 0; j--) {
+      if (segments[j].startMs <= incidentMs && segments[j].endMs >= incidentMs) { best = segments[j]; break; }
+    }
+  }
+  if (!best && segments.length > 0) best = segments[segments.length - 1];
+
+  if (!best) {
+    hideSaving();
+    toast('!', 'Not enough buffer yet.\nRecord for at least ' + BEFORE_SECS + 's first.');
+    resetAfterIncident();
+    return;
+  }
+
+  var mime  = best.blob.type || 'video/mp4';
+  var ext   = (mime.indexOf('mp4') !== -1 || mime.indexOf('avc') !== -1) ? 'mp4' : 'webm';
+  var ts    = new Date(incidentMs);
+  var dtStr = ts.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  var fname = 'INCIDENT_' + dtStr + '.' + ext;
+
+  var addr = resolvedAddr
+    || gpsAddress
+    || (gpsLat !== null ? gpsLat.toFixed(5) + ', ' + gpsLng.toFixed(5) : '--');
+
+  setSavingSub('SAVING...');
+  var url = URL.createObjectURL(best.blob);
+  var dur = ((best.endMs - best.startMs) / 1000).toFixed(1);
+
+  clips.push({
+    id: Date.now(), name: fname, url: url, blob: best.blob,
+    size: best.blob.size, ts: ts.toLocaleString(),
+    address: addr, ext: ext, duration: dur
+  });
+
+  updateClipsUI();
+  hideSaving();
+  autoDownload(url, fname);
+  toast('OK', 'Clip saved! ' + dur + 's\n' + addr);
+  resetAfterIncident();
+}
+
+function resetAfterIncident() {
+  incidentActive = false;
+  afterTimer     = null;
+  geoPromise     = null;
+  document.getElementById('inc-btn').disabled = false;
+  if (isRecording) startSeg();
+}
+
+// ─────────────────────────────────────────────
+// COUNTDOWN (HTML overlay — NOT burned into clip)
+// ─────────────────────────────────────────────
+function startCountdown() {
+  var el  = document.getElementById('countdown-el');
+  var num = document.getElementById('countdown-num');
+  el.style.display = 'flex';
+  var start = Date.now();
+  function tick() {
+    var rem = Math.max(0, AFTER_SECS - (Date.now() - start) / 1000);
+    num.textContent = '+' + rem.toFixed(1) + 's';
+    if (rem > 0) countdownTimer = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopCountdown() {
+  if (countdownTimer) { cancelAnimationFrame(countdownTimer); countdownTimer = null; }
+  document.getElementById('countdown-el').style.display = 'none';
+}
+
+// ─────────────────────────────────────────────
+// CLIPS PANEL
+// ─────────────────────────────────────────────
+function updateClipsUI() {
+  var n = clips.length;
+  document.getElementById('clip-num').textContent   = n;
+  document.getElementById('fab-count').textContent  = n;
+  document.getElementById('fab-count').classList.toggle('show', n > 0);
+  renderClips();
+}
+
+function renderClips() {
+  var body  = document.getElementById('clips-body');
+  var empty = document.getElementById('clips-empty');
+  empty.style.display = clips.length ? 'none' : 'block';
+  body.querySelectorAll('.clip-item').forEach(function(el) { el.remove(); });
+  clips.slice().reverse().forEach(function(c) {
+    var el = document.createElement('div');
+    el.className = 'clip-item';
+    el.innerHTML =
+      '<div class="clip-info">' +
+        '<div class="clip-name">' + c.name + '</div>' +
+        '<div class="clip-meta">' + c.ts + ' &middot; ' + (c.size/1048576).toFixed(1) + ' MB' +
+          (c.duration ? ' &middot; ' + c.duration + 's' : '') + '</div>' +
+        '<div class="clip-addr">' + (c.address || '--') + '</div>' +
+      '</div>' +
+      '<div class="clip-btns">' +
+        '<button class="clip-btn share" onclick="shareClip(' + c.id + ')">SHARE</button>' +
+        '<button class="clip-btn icloud" onclick="icloudClip(' + c.id + ')">iCLOUD</button>' +
+      '</div>';
+    body.appendChild(el);
+  });
+}
+
+function openClips()  { document.getElementById('clips-panel').classList.add('open'); renderClips(); }
+function closeClips() { document.getElementById('clips-panel').classList.remove('open'); }
+
+function shareClip(id) {
+  var c = clips.find(function(x) { return x.id === id; });
+  if (!c) return;
+  var file = new File([c.blob], c.name, { type: c.blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ title: 'DashCam Incident', text: c.address + '\n' + c.ts, files: [file] })
+      .catch(function(e) { if (e.name !== 'AbortError') toast('X', e.message); });
+  } else {
+    autoDownload(c.url, c.name);
+    toast('DL', 'File downloaded.\nOpen Files app to share.');
+  }
+}
+
+function icloudClip(id) {
+  toast('iC', 'In share sheet:\nSave to Files > iCloud Drive > DashCam');
+  shareClip(id);
+}
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function autoDownload(url, name) {
+  var a = document.createElement('a');
+  a.href = url; a.download = name; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(function() { document.body.removeChild(a); }, 1000);
+}
+
+function flashViewport() {
+  var el = document.getElementById('flash-el');
+  el.classList.remove('go');
+  void el.offsetWidth;
+  el.classList.add('go');
+}
+
+function showSaving(sub) {
+  document.getElementById('saving').classList.add('show');
+  document.getElementById('saving-sub').textContent = sub;
+}
+function setSavingSub(t) { document.getElementById('saving-sub').textContent = t; }
+function hideSaving()    { document.getElementById('saving-sub'); document.getElementById('saving').classList.remove('show'); }
+
+function toast(icon, msg) {
+  var icons = { 'OK': '&#x2705;', '!': '&#x26A0;&#xFE0F;', 'X': '&#x274C;', 'DL': '&#x1F4E5;', 'iC': '&#x2601;&#xFE0F;' };
+  document.getElementById('toast-icon').innerHTML = icons[icon] || icon;
+  document.getElementById('toast-msg').innerHTML  = msg.replace(/\n/g, '<br>');
+  document.getElementById('toast').classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { document.getElementById('toast').classList.remove('show'); }, 4500);
+}
+
+function reqWakeLock() {
+  if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').then(function(wl) { wakeLock = wl; }).catch(function() {});
+  }
+}
+
+document.addEventListener('visibilitychange', function() {
+  if (wakeLock !== null && document.visibilityState === 'visible') reqWakeLock();
+});
+</script>
+</body>
+</html>
