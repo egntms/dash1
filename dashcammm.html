@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DashCam">
+<title>DashCam</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Oswald:wght@400;600;700&display=swap');
+
+  :root {
+    --red: #ff1a1a; --amber: #ffb800; --green: #00ff88;
+    --bg: #0a0a0a; --panel: #111; --border: #222;
+    --text: #e8e8e8; --muted: #666;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Oswald', sans-serif;
+    --safe-top: env(safe-area-inset-top, 44px);
+    --safe-bottom: env(safe-area-inset-bottom, 34px);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; background:var(--bg); color:var(--text);
+    font-family:var(--mono); overflow:hidden; user-select:none; -webkit-user-select:none; }
+  #app { display:flex; flex-direction:column; width:100%; height:100%;
+    padding-top:var(--safe-top); padding-bottom:var(--safe-bottom); }
+
+  /* TOP BAR */
+  #topbar { display:flex; align-items:center; justify-content:space-between;
+    padding:8px 16px; background:rgba(10,10,10,.97);
+    border-bottom:1px solid var(--border); flex-shrink:0; z-index:10; }
+  #logo { font-family:var(--display); font-size:22px; font-weight:700; letter-spacing:3px; }
+  #logo span { color:var(--red); }
+  #rec-indicator { display:flex; align-items:center; gap:6px;
+    font-size:11px; letter-spacing:2px; color:var(--muted); transition:color .3s; }
+  #rec-indicator.active { color:var(--red); }
+  #rec-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); transition:background .3s; }
+  #rec-indicator.active #rec-dot { background:var(--red); animation:blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+  #clip-counter { font-size:11px; letter-spacing:1px; color:var(--muted); }
+  #clip-counter span { color:var(--amber); }
+
+  /* VIEWPORT */
+  #viewport { position:relative; flex:1; background:#000; overflow:hidden; }
+  #video { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+  #preview-canvas {
+    /* Maintain 16:9 aspect ratio — never stretch.
+       max-width/max-height with auto on the other axis achieves contain behavior. */
+    display:block;
+    max-width:100%;
+    max-height:100%;
+    width:auto;
+    height:auto;
+    /* Center within viewport */
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    transition:opacity .3s;
+  }
+  #viewport.preview-off #preview-canvas { opacity:0; }
+
+  #cam-placeholder { position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px;
+    color:var(--muted); font-size:13px; letter-spacing:2px; pointer-events:none; }
+  #cam-placeholder svg { opacity:.2; }
+  #viewport:not(.preview-off) #cam-placeholder { display:none; }
+
+  #buffer-bar-wrap { position:absolute; bottom:0; left:0; right:0; height:3px;
+    background:rgba(255,255,255,.06); pointer-events:none; }
+  #buffer-bar { height:100%; width:0%;
+    background:linear-gradient(90deg,var(--red),var(--amber)); transition:width .5s linear; }
+
+  #flash { position:absolute; inset:0; opacity:0; pointer-events:none;
+    background:rgba(255,26,26,.22); border:3px solid var(--red); border-radius:4px; }
+  #flash.flash-anim { animation:flash-out .6s ease-out forwards; }
+  @keyframes flash-out { 0%{opacity:1} 100%{opacity:0} }
+
+  #clips-fab { position:absolute; top:8px; right:8px; background:rgba(0,0,0,.7);
+    border:1px solid var(--border); color:var(--text); font-family:var(--mono);
+    font-size:9px; letter-spacing:1px; padding:5px 8px; border-radius:6px; cursor:pointer;
+    z-index:5; display:flex; align-items:center; gap:4px; backdrop-filter:blur(4px); }
+  #clips-fab-count { background:var(--red); color:#fff; font-size:9px;
+    padding:1px 5px; border-radius:8px; display:none; }
+  #clips-fab-count.has-clips { display:block; }
+
+  /* CONTROLS */
+  #controls { background:var(--panel); border-top:1px solid var(--border);
+    padding:16px; flex-shrink:0; display:flex; flex-direction:column; gap:14px; }
+  #controls-row1 { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+
+  .toggle-wrap { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .toggle-label-text { font-size:9px; letter-spacing:2px; color:var(--muted); }
+  .toggle-switch { position:relative; width:50px; height:26px; cursor:pointer; }
+  .toggle-switch input { display:none; }
+  .toggle-track { position:absolute; inset:0; background:#333; border-radius:13px;
+    transition:background .3s; border:1px solid #444; }
+  .toggle-switch input:checked + .toggle-track { background:var(--green); border-color:var(--green); }
+  .toggle-thumb { position:absolute; top:3px; left:3px; width:18px; height:18px;
+    background:#fff; border-radius:50%; transition:transform .3s; box-shadow:0 1px 4px rgba(0,0,0,.4); }
+  .toggle-switch input:checked ~ .toggle-thumb { transform:translateX(24px); }
+
+  .icon-btn { background:#1a1a1a; border:1px solid var(--border); color:var(--text);
+    font-family:var(--mono); font-size:10px; letter-spacing:1px; padding:8px 12px;
+    border-radius:6px; cursor:pointer; display:flex; flex-direction:column;
+    align-items:center; gap:3px; transition:border-color .2s,background .2s; }
+  .icon-btn:active { background:#222; }
+
+  #rec-btn { background:#1a0000; border:1px solid #330000; color:var(--red);
+    font-family:var(--display); font-size:11px; letter-spacing:3px; font-weight:600;
+    padding:10px 16px; border-radius:6px; cursor:pointer;
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    transition:all .2s; flex:1; max-width:120px; }
+  #rec-btn.recording { border-color:var(--red); box-shadow:0 0 12px rgba(255,26,26,.15); }
+  #rec-btn .rec-icon { width:10px; height:10px; border-radius:50%;
+    background:var(--red); opacity:.5; transition:opacity .3s; }
+  #rec-btn.recording .rec-icon { opacity:1; animation:blink 1s infinite; }
+  #rec-btn:active { transform:scale(.97); }
+
+  #incident-wrap { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  #incident-btn { width:100%; height:72px;
+    background:radial-gradient(ellipse at 50% 40%,#ff3333,#cc0000,#800000);
+    border:none; border-radius:14px; cursor:pointer;
+    font-family:var(--display); font-size:20px; font-weight:700; letter-spacing:6px;
+    color:#fff; text-shadow:0 0 20px rgba(255,100,100,.6);
+    box-shadow:0 4px 20px rgba(255,26,26,.4),0 0 0 1px rgba(255,80,80,.3),
+      inset 0 1px 0 rgba(255,180,180,.2),inset 0 -2px 6px rgba(0,0,0,.4);
+    transition:all .1s; position:relative; overflow:hidden; }
+  #incident-btn::before { content:''; position:absolute; top:0; left:-100%;
+    width:60%; height:100%;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);
+    transition:left .5s; }
+  #incident-btn:hover::before { left:150%; }
+  #incident-btn:active { transform:scale(.97);
+    box-shadow:0 2px 10px rgba(255,26,26,.6),0 0 0 2px var(--red),inset 0 2px 8px rgba(0,0,0,.5); }
+  #incident-btn:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+  #incident-label { font-size:9px; letter-spacing:2px; color:var(--muted); text-align:center; }
+
+  /* SAVING */
+  #saving-overlay { position:fixed; inset:0; background:rgba(0,0,0,.82);
+    display:none; align-items:center; justify-content:center;
+    flex-direction:column; gap:16px; z-index:150; backdrop-filter:blur(4px); }
+  #saving-overlay.show { display:flex; }
+  #saving-ring { width:60px; height:60px; border:3px solid #222;
+    border-top-color:var(--red); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #saving-text { font-family:var(--display); font-size:14px; letter-spacing:4px; color:var(--text); }
+  #saving-sub { font-size:10px; color:var(--muted); letter-spacing:2px; }
+
+  /* TOAST */
+  #toast { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    background:rgba(0,0,0,.93); border:1px solid var(--border); border-radius:12px;
+    padding:20px 28px; font-size:13px; letter-spacing:1px; color:var(--text);
+    text-align:center; z-index:200; max-width:85%; display:none;
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+  #toast.show { display:block; animation:pop-in .2s ease-out; }
+  @keyframes pop-in { from{opacity:0;transform:translate(-50%,-50%) scale(.9)} to{opacity:1;transform:translate(-50%,-50%) scale(1)} }
+  #toast-icon { font-size:28px; margin-bottom:8px; }
+  #toast-msg { line-height:1.6; }
+
+  /* CLIPS PANEL */
+  #clips-panel { position:fixed; inset:0; background:rgba(0,0,0,.97); z-index:200;
+    display:none; flex-direction:column;
+    padding-top:var(--safe-top); padding-bottom:var(--safe-bottom); }
+  #clips-panel.open { display:flex; }
+  #clips-header { display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px; border-bottom:1px solid var(--border); }
+  #clips-title { font-family:var(--display); font-size:16px; font-weight:600; letter-spacing:3px; }
+  #clips-close { background:#1a1a1a; border:1px solid var(--border); color:var(--text);
+    font-family:var(--mono); font-size:12px; padding:6px 12px; border-radius:6px;
+    cursor:pointer; letter-spacing:1px; }
+  #clips-list { flex:1; overflow-y:auto; padding:12px 16px;
+    display:flex; flex-direction:column; gap:10px; }
+  .clip-item { background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .clip-info { flex:1; overflow:hidden; }
+  .clip-name { font-size:11px; color:var(--text); letter-spacing:.5px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .clip-meta { font-size:10px; color:var(--muted); margin-top:3px; }
+  .clip-addr { font-size:10px; color:var(--green); margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .clip-badge { display:inline-block; font-size:8px; padding:1px 6px; border-radius:3px;
+    margin-top:4px; background:#0a1f0a; color:#00cc66;
+    border:1px solid #1a4a1a; letter-spacing:1px; }
+  .clip-actions { display:flex; gap:8px; flex-shrink:0; }
+  .clip-btn { background:#1a1a1a; border:1px solid var(--border); color:var(--text);
+    font-family:var(--mono); font-size:10px; padding:5px 10px; border-radius:5px;
+    cursor:pointer; letter-spacing:.5px; white-space:nowrap; }
+  .clip-btn.share-btn { border-color:#1a3355; color:#5599ff; }
+  .clip-btn.icloud-btn { border-color:#1a2b1a; color:var(--green); }
+  #clips-empty { text-align:center; color:var(--muted); font-size:12px;
+    letter-spacing:1px; padding:40px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div id="logo">DASH<span>CAM</span></div>
+    <div id="rec-indicator"><div id="rec-dot"></div><span id="rec-status">STANDBY</span></div>
+    <div id="clip-counter">CLIPS: <span id="clip-count">0</span></div>
+  </div>
+
+  <div id="viewport" class="preview-off">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="preview-canvas"></canvas>
+
+    <div id="cam-placeholder">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+        <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+      </svg>
+      CAMERA INACTIVE
+    </div>
+
+    <div id="buffer-bar-wrap"><div id="buffer-bar"></div></div>
+    <div id="flash"></div>
+
+    <!-- Incident countdown — HTML only, never recorded into clip -->
+    <div id="incident-overlay" style="
+      display:none; position:absolute; inset:0; pointer-events:none;
+      align-items:center; justify-content:center; z-index:8;
+      background:rgba(255,26,26,0.10);
+    ">
+      <div style="
+        background:rgba(0,0,0,0.82); border:2px solid #ff1a1a; border-radius:12px;
+        padding:16px 32px; text-align:center;
+        font-family:'Oswald',sans-serif; color:#ff1a1a;
+      ">
+        <div style="font-size:11px;letter-spacing:3px;margin-bottom:4px;">RECORDING INCIDENT</div>
+        <div id="incident-countdown" style="font-size:36px;font-weight:700;letter-spacing:2px;">+5.0s</div>
+      </div>
+    </div>
+
+    <div id="clips-fab" onclick="openClips()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M15 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      CLIPS <span id="clips-fab-count">0</span>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div id="controls-row1">
+      <div class="toggle-wrap">
+        <label class="toggle-switch">
+          <input type="checkbox" id="preview-chk" onchange="togglePreview(this.checked)">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+        <div class="toggle-label-text">PREVIEW</div>
+      </div>
+
+      <button class="icon-btn" onclick="flipCamera()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
+          <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+        </svg>
+        FLIP
+      </button>
+
+      <button id="rec-btn" onclick="toggleRecording()">
+        <div class="rec-icon"></div>
+        <span id="rec-btn-label">START</span>
+      </button>
+    </div>
+
+    <div id="incident-wrap">
+      <button id="incident-btn" onclick="saveIncident()" disabled>
+        &#x25CF; INCIDENT
+      </button>
+      <div id="incident-label">SAVES -10s / +5s &nbsp;&#183;&nbsp; TIME + LOCATION BURNED INTO VIDEO</div>
+    </div>
+  </div>
+</div>
+
+<div id="saving-overlay">
+  <div id="saving-ring"></div>
+  <div id="saving-text">SAVING CLIP</div>
+  <div id="saving-sub">ENCODING...</div>
+</div>
+
+<div id="toast"><div id="toast-icon">&#x2705;</div><div id="toast-msg"></div></div>
+
+<div id="clips-panel">
+  <div id="clips-header">
+    <div id="clips-title">SAVED CLIPS</div>
+    <button id="clips-close" onclick="closeClips()">&#x2715; CLOSE</button>
+  </div>
+  <div id="clips-list"><div id="clips-empty">NO CLIPS SAVED YET</div></div>
+</div>
+
+<script>
+// 
+// CONFIG
+// 
+const BEFORE_SECS  = 10;   // seconds before button press to keep
+const SHOW_COUNTDOWN = true; // show countdown in HTML overlay (NOT on canvas = not in clip)
+const AFTER_SECS   = 5;    // seconds after button press to keep
+const SEG_SECS     = 22;   // MUST be > BEFORE_SECS+AFTER_SECS (10+5=15) so one segment always covers full window
+const CANVAS_W     = 1280;
+const CANVAS_H     = 720;
+
+// 
+// RECORDING STRATEGY  rolling segments
+//
+// Instead of concatenating chunks (broken WebM timestamps),
+// we record continuous segments. Each segment is a complete,
+// valid, independently-playable WebM/MP4 blob.
+//
+// Segments array: [{blob, startTs, endTs}]
+// We keep the last 2 segments (covers ~24s = more than BEFORE_SECS).
+//
+// On incident button press:
+//   1. Note incidentTs
+//   2. Wait AFTER_SECS, then stop current segment early
+//   3. Pick segments that cover [incidentTs-BEFORE_SECS, incidentTs+AFTER_SECS]
+//   4. If one segment covers the full window  save it directly (one clean blob)
+//   5. If two segments needed  use the second one only if it starts close enough,
+//      or ideally restart so the incident falls in one segment
+//
+// SIMPLEST RELIABLE APPROACH (used here):
+//   When incident button pressed, immediately start a NEW segment.
+//   The previous segment (up to 12s) = the "before" footage.
+//   The new segment records for exactly AFTER_SECS then stops.
+//   Combine prev segment blob + new segment blob = one file with two valid WebMs.
+//   We wrap them in a simple container... actually WebM blobs CAN be
+//   concatenated IF they come from the same MediaRecorder session with
+//   continuous timestamps. The issue was chunked blobs from .start(ms).
+//
+// TRUE FIX: Never use .start(timeslice). Use .start() with no argument,
+//   then .stop() to get one complete blob per recording session.
+//   One session = one valid, seekable, correctly-timestamped file.
+// 
+
+let mediaStream    = null;
+let canvasStream   = null;
+let isRecording    = false;
+let facingMode     = 'environment';
+
+// Rolling segment storage
+let segments       = [];   // [{blob, startTs, endTs, mr}]
+let currentMR      = null; // active MediaRecorder
+let currentStartTs = null; // when current segment started
+let segTimer       = null; // timer to auto-rotate segments
+
+// Incident state
+let incidentTs     = null;
+let incidentActive = false;
+let afterTimer     = null;
+
+let clips = [];
+
+const loc = { lat: null, lng: null, speed: null, address: 'Acquiring location...', accuracy: null };
+
+// 
+// CANVAS SETUP
+// 
+const canvas = document.getElementById('preview-canvas');
+const ctx    = canvas.getContext('2d');
+canvas.width  = CANVAS_W;
+canvas.height = CANVAS_H;
+const video  = document.getElementById('video');
+
+// 
+// COMPOSITOR
+// 
+function drawFrame() {
+  requestAnimationFrame(drawFrame);
+
+  if (mediaStream && video.readyState >= 2) {
+    // Cover-fill: scale video to fill canvas while preserving its aspect ratio
+    const vw = video.videoWidth  || CANVAS_W;
+    const vh = video.videoHeight || CANVAS_H;
+    const scale = Math.max(CANVAS_W / vw, CANVAS_H / vh);
+    const dw = vw * scale, dh = vh * scale;
+    const dx = (CANVAS_W - dw) / 2, dy = (CANVAS_H - dh) / 2;
+    if (facingMode === 'user') {
+      ctx.save(); ctx.translate(CANVAS_W, 0); ctx.scale(-1, 1);
+      ctx.drawImage(video, dx, dy, dw, dh); ctx.restore();
+    } else {
+      ctx.drawImage(video, dx, dy, dw, dh);
+    }
+  } else {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = '20px "Share Tech Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CAMERA INACTIVE', CANVAS_W/2, CANVAS_H/2);
+    ctx.textAlign = 'left';
+  }
+
+  // Scanlines
+  for (let y = 0; y < CANVAS_H; y += 4) {
+    ctx.fillStyle = 'rgba(0,0,0,0.03)';
+    ctx.fillRect(0, y, CANVAS_W, 2);
+  }
+
+  // Corner brackets
+  ctx.strokeStyle = 'rgba(255,26,26,0.5)';
+  ctx.lineWidth = 2.5;
+  const BS = 36;
+  [[12,12,1,1],[CANVAS_W-12,12,-1,1],[12,CANVAS_H-12,1,-1],[CANVAS_W-12,CANVAS_H-12,-1,-1]].forEach(([x,y,dx,dy]) => {
+    ctx.beginPath(); ctx.moveTo(x+dx*BS,y); ctx.lineTo(x,y); ctx.lineTo(x,y+dy*BS); ctx.stroke();
+  });
+
+  const now = new Date();
+  const timeStr = now.toTimeString().slice(0,8);
+  const dateStr = now.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
+
+  // TOP-LEFT: Time + Date
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  rrect(ctx,18,18,236,70,7); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth=1;
+  rrect(ctx,18,18,236,70,7); ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 34px "Share Tech Mono", monospace';
+  ctx.fillText(timeStr, 30, 56);
+  ctx.fillStyle = '#999';
+  ctx.font = '14px "Share Tech Mono", monospace';
+  ctx.fillText(dateStr, 30, 76);
+
+  // TOP-RIGHT: Speed
+  const spd = loc.speed !== null ? String(loc.speed) : '--';
+  const sW=96, sX=CANVAS_W-18-sW;
+  ctx.fillStyle='rgba(0,0,0,0.65)';
+  rrect(ctx,sX,18,sW,70,7); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.13)'; ctx.lineWidth=1;
+  rrect(ctx,sX,18,sW,70,7); ctx.stroke();
+  ctx.textAlign='center';
+  ctx.fillStyle='#ffb800'; ctx.font='bold 38px "Share Tech Mono", monospace';
+  ctx.fillText(spd, sX+sW/2, 56);
+  ctx.fillStyle='#777'; ctx.font='12px "Share Tech Mono", monospace';
+  ctx.fillText('KM/H', sX+sW/2, 74);
+  ctx.textAlign='left';
+
+  // BOTTOM: Location bar
+  const addrLine  = loc.lat !== null
+    ? (loc.address && loc.address !== 'Acquiring location...'
+        ? loc.address
+        : loc.lat.toFixed(5) + ', ' + loc.lng.toFixed(5))
+    : 'Acquiring location...';
+  const coordLine = loc.lat ? `${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}` : '';
+  const bH = coordLine ? 62 : 40;
+  const bY = CANVAS_H-18-bH, bW = CANVAS_W-36;
+  ctx.fillStyle='rgba(0,0,0,0.70)';
+  rrect(ctx,18,bY,bW,bH,7); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.lineWidth=1;
+  rrect(ctx,18,bY,bW,bH,7); ctx.stroke();
+  ctx.fillStyle='#00ff88'; ctx.font='16px "Share Tech Mono", monospace';
+  ctx.fillText(clipText(addrLine,bW-100), 30, bY+24);
+
+  const accLabel = loc.accuracy||'...';
+  const accColor = {GPS:'#00ff88',WIFI:'#ffb800',APPROX:'#ff8800',IP:'#ff4444'}[accLabel]||'#888';
+  const bX2=18+bW-74, bY2=bY+6;
+  ctx.fillStyle='rgba(0,0,0,0.6)'; rrect(ctx,bX2,bY2,68,18,3); ctx.fill();
+  ctx.strokeStyle=accColor; ctx.lineWidth=1; rrect(ctx,bX2,bY2,68,18,3); ctx.stroke();
+  ctx.fillStyle=accColor; ctx.font='bold 10px "Share Tech Mono", monospace';
+  ctx.textAlign='center'; ctx.fillText(accLabel, bX2+34, bY2+13); ctx.textAlign='left';
+
+  if (coordLine) {
+    ctx.fillStyle='#444'; ctx.font='12px "Share Tech Mono", monospace';
+    ctx.fillText(coordLine, 30, bY+46);
+  }
+
+  // REC indicator
+  if (isRecording) {
+    const blink = Math.floor(Date.now()/700)%2===0;
+    if (blink) {
+      ctx.fillStyle='#ff1a1a'; ctx.beginPath();
+      ctx.arc(CANVAS_W-30,108,7,0,Math.PI*2); ctx.fill();
+    }
+    ctx.fillStyle='#ff1a1a'; ctx.textAlign='right';
+    ctx.font='bold 13px "Share Tech Mono", monospace';
+    ctx.fillText('REC', CANVAS_W-42, 113); ctx.textAlign='left';
+  }
+
+  // Countdown shown in HTML overlay only (not on canvas, not in clip)
+}
+
+function rrect(ctx,x,y,w,h,r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+}
+function clipText(str,maxPx) {
+  const max=Math.floor(maxPx/9.5);
+  return str.length>max ? str.slice(0,max-1)+'\u2026' : str;
+}
+
+drawFrame();
+
+// Startup HTTPS check  show warning banner if on HTTP (iOS will block camera)
+if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#cc0000;color:#fff;' +
+    'font-family:monospace;font-size:13px;padding:10px 16px;text-align:center;letter-spacing:1px;';
+  banner.innerHTML = '&#x26A0;&#xFE0F; HTTPS REQUIRED &mdash; Camera will not work over HTTP. ' +
+    'Host this file on an https:// server.';
+  document.body.appendChild(banner);
+}
+
+//
+// GEOLOCATION
+// GPS coords tracked continuously — no geocoding in background.
+// reverseGeocode() called only when incident button is pressed.
+//
+
+async function reverseGeocode(lat, lng) {
+  try {
+    const r = await fetch(
+      'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json&zoom=18&addressdetails=1',
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'DashCam-App/1.0' } }
+    );
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const a = d.address || {};
+    const road   = a.road || a.pedestrian || a.path || a.footway || a.street || '';
+    const num    = a.house_number || '';
+    const suburb = a.suburb || a.neighbourhood || a.quarter || '';
+    const city   = a.city || a.town || a.village || a.municipality || a.county || '';
+    let parts = [];
+    if (road && num)    parts.push(road + ' ' + num);
+    else if (road)      parts.push(road);
+    if (suburb && !num) parts.push(suburb);
+    if (city)           parts.push(city);
+    const result = parts.join(', ');
+    return result || d.display_name.split(',').slice(0,2).join(',').trim() || (lat.toFixed(5)+', '+lng.toFixed(5));
+  } catch(e) {
+    return lat.toFixed(5) + ', ' + lng.toFixed(5);
+  }
+}
+
+async function ipGeolocation() {
+  try {
+    const r = await fetch('https://ip-api.com/json/?fields=lat,lon,city,regionName,status');
+    const d = await r.json();
+    if (d.status !== 'success') return false;
+    loc.lat = d.lat; loc.lng = d.lon; loc.speed = 0; loc.accuracy = 'IP';
+    return true;
+  } catch(e) { return false; }
+}
+
+if (navigator.geolocation) {
+  let ipTimer = setTimeout(async () => {
+    if (loc.lat === null) { await ipGeolocation(); }
+  }, 6000);
+
+  navigator.geolocation.watchPosition(pos => {
+    clearTimeout(ipTimer); ipTimer = null;
+    const acc    = pos.coords.accuracy;
+    loc.lat      = pos.coords.latitude;
+    loc.lng      = pos.coords.longitude;
+    loc.speed    = pos.coords.speed != null ? Math.round(pos.coords.speed * 3.6) : 0;
+    loc.accuracy = acc < 20 ? 'GPS' : acc < 100 ? 'WIFI' : 'APPROX';
+    // No geocoding here — only on incident press
+  }, async () => {
+    if (loc.lat === null) { await ipGeolocation(); }
+  }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+} else {
+  ipGeolocation();
+}
+
+// 
+// CAMERA
+// 
+async function startCamera() {
+  try {
+    if (mediaStream) stopCamera();
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast('ERR', location.protocol === 'http:'
+        ? 'HTTPS required. Open via https://'
+        : 'Camera API unavailable. Use Safari on iOS 14.3+');
+      return false;
+    }
+
+    // Try with facingMode first, fall back to plain video if constrained
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facingMode },
+        audio: true
+      });
+    } catch(e) {
+      // Any constraint error — retry with minimal constraints
+      mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    }
+
+    video.srcObject = mediaStream;
+    await video.play();
+    return true;
+  } catch(err) {
+    let msg = 'Camera error: ' + (err.name || err.message || 'unknown');
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      msg = 'Camera denied. Go to Settings > Safari > Camera > Allow';
+    } else if (err.name === 'NotReadableError') {
+      msg = 'Camera in use by another app';
+    } else if (err.name === 'SecurityError') {
+      msg = 'Security error. Open via https://';
+    }
+    showToast('ERR', msg);
+    return false;
+  }
+}
+function stopCamera() {
+  if(mediaStream){mediaStream.getTracks().forEach(t=>t.stop());mediaStream=null;}
+  video.srcObject=null;
+}
+function flipCamera() {
+  facingMode=facingMode==='environment'?'user':'environment';
+  const wasRec=isRecording;
+  if(wasRec) stopAllRecording();
+  if(mediaStream) startCamera().then(()=>{if(wasRec)startAllRecording();});
+}
+
+// 
+// PREVIEW TOGGLE
+// 
+function togglePreview(on) {
+  document.getElementById('viewport').classList.toggle('preview-off',!on);
+}
+
+// 
+// SEGMENT RECORDING ENGINE
+//
+// Key insight: MediaRecorder.start() with NO timeslice argument,
+// stopped with .stop(), produces ONE complete valid WebM blob.
+// Timestamps are continuous and correct. Fully seekable.
+//
+// We run overlapping segments:
+//   [seg N-1: 12s] [seg N: 12s] [seg N+1: 12s] ...
+// We keep the last 2 completed segments + current recording.
+// On incident: stop current segment after +5s, combine with prev.
+// 
+
+function getBestMime() {
+  // iOS Safari only supports MP4/H.264 — must be listed first.
+  // Chrome/desktop supports WebM. We pick the first supported type.
+  const mimes = [
+    'video/mp4;codecs=avc1,mp4a.40.2', // iOS Safari (H.264 + AAC)
+    'video/mp4;codecs=avc1',            // iOS Safari fallback
+    'video/mp4',                        // generic MP4
+    'video/webm;codecs=vp9,opus',       // Chrome desktop
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  for (const m of mimes) {
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return ''; // let browser decide
+}
+
+function makeMR(stream) {
+  const mime=getBestMime();
+  try{return new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:4_000_000});} catch(e) {try{return new MediaRecorder(stream,{videoBitsPerSecond:4_000_000});} catch(e) {return new MediaRecorder(stream);}}
+}
+
+// Start a new segment recorder, store completed blob when it stops
+function startSegment() {
+  if (!canvasStream || incidentActive) return;
+
+  const mr       = makeMR(canvasStream);
+  const startTs  = Date.now();
+  currentMR      = mr;
+  currentStartTs = startTs;
+
+  mr.ondataavailable = e => {
+    if (!e.data || e.data.size < 1000) return;
+    const seg = { blob: e.data, startTs, endTs: Date.now(), mime: e.data.type || '' };
+    segments.push(seg);
+    // Keep only last 2 completed segments (covers ~24s)
+    if (segments.length > 2) segments.shift();
+    updateBufferBar();
+  };
+
+  mr.start();  // NO timeslice ? one complete blob per session
+
+  // Auto-rotate: stop after SEG_SECS, which triggers ondataavailable, then restart
+  segTimer = setTimeout(() => {
+    if (mr.state === 'recording') mr.stop();
+    // ondataavailable fires, stores blob, then we start next segment
+    mr.onstop = () => { if (isRecording && !incidentActive) startSegment(); };
+  }, SEG_SECS * 1000);
+}
+
+function toggleRecording() {
+  if (isRecording) { stopAllRecording(); setRecUI(false); }
+  else { startCamera().then(ok=>{ if(!ok)return; startAllRecording(); setRecUI(true); }); }
+}
+
+function startAllRecording() {
+  if (!mediaStream) return;
+  segments      = [];
+  isRecording   = true;
+  incidentActive= false;
+
+  canvasStream  = canvas.captureStream(30);
+  mediaStream.getAudioTracks().forEach(t=>canvasStream.addTrack(t));
+
+  startSegment();
+  document.getElementById('incident-btn').disabled = false;
+  requestWakeLock();
+}
+
+function stopAllRecording() {
+  clearTimeout(segTimer); segTimer=null;
+  if (currentMR && currentMR.state!=='inactive') currentMR.stop();
+  stopIncidentCountdown();
+  currentMR=null; canvasStream=null; isRecording=false; incidentActive=false;
+  if(afterTimer){clearTimeout(afterTimer);afterTimer=null;}
+  segments=[];
+  document.getElementById('incident-btn').disabled=true;
+  document.getElementById('buffer-bar').style.width='0%';
+}
+
+function updateBufferBar() {
+  if (!segments.length) return;
+  const oldest = segments[0].startTs;
+  const span   = Date.now() - oldest;
+  const target = (BEFORE_SECS + SEG_SECS) * 1000;
+  document.getElementById('buffer-bar').style.width = Math.min(100,(span/target)*100)+'%';
+}
+
+function setRecUI(on) {
+  document.getElementById('rec-btn').classList.toggle('recording',on);
+  document.getElementById('rec-indicator').classList.toggle('active',on);
+  document.getElementById('rec-status').textContent   =on?'REC':'STANDBY';
+  document.getElementById('rec-btn-label').textContent=on?'STOP':'START';
+}
+
+// 
+// INCIDENT BUTTON
+//
+// On press:
+//   1. Mark incidentTs
+//   2. Stop the auto-rotate timer (don't start a new segment yet)
+//   3. Let current segment keep recording for AFTER_SECS more seconds
+//   4. Stop current segment  get its blob (contains from currentStartTs to now+5s)
+//   5. Select which segment(s) cover [incidentTs-BEFORE_SECS, incidentTs+AFTER_SECS]
+//   6. Save the right blob(s)
+// 
+function saveIncident() {
+  if (!isRecording || incidentActive) return;
+  incidentActive = true;
+  incidentTs     = Date.now();
+
+  // Geocode NOW while the 5s after-timer runs — result ready before finalize
+  if (loc.lat !== null) {
+    loc.address = loc.lat.toFixed(5) + ', ' + loc.lng.toFixed(5); // show coords immediately
+    reverseGeocode(loc.lat, loc.lng).then(addr => { loc.address = addr; });
+  }
+
+  clearTimeout(segTimer); segTimer=null;
+  flashViewport();
+  startIncidentCountdown();
+
+  afterTimer = setTimeout(() => {
+    stopIncidentCountdown();
+    if (currentMR && currentMR.state==='recording') {
+      currentMR.onstop = finalizeIncident;
+      currentMR.stop();
+    } else {
+      finalizeIncident();
+    }
+  }, AFTER_SECS * 1000);
+}
+
+let countdownRAF = null;
+function startIncidentCountdown() {
+  const overlay = document.getElementById('incident-overlay');
+  const label   = document.getElementById('incident-countdown');
+  overlay.style.display = 'flex';
+  const start = Date.now();
+  function tick() {
+    const remain = Math.max(0, AFTER_SECS - (Date.now()-start)/1000);
+    label.textContent = '+' + remain.toFixed(1) + 's';
+    if (remain > 0) countdownRAF = requestAnimationFrame(tick);
+  }
+  tick();
+}
+function stopIncidentCountdown() {
+  if (countdownRAF) { cancelAnimationFrame(countdownRAF); countdownRAF=null; }
+  document.getElementById('incident-overlay').style.display = 'none';
+}
+
+async function finalizeIncident() {
+  incidentActive = false;
+  showSaving('ENCODING VIDEO...');
+
+  // Current segment blob covers: currentStartTs  incidentTs + AFTER_SECS
+  // Previous segments cover earlier time.
+  // Find the segment(s) that together cover [incidentTs-BEFORE_SECS, incidentTs+AFTER_SECS]
+
+  const windowStart = incidentTs - (BEFORE_SECS * 1000);
+  const windowEnd   = incidentTs + (AFTER_SECS   * 1000);
+
+  // Get the just-stopped segment from ondataavailable
+  // Wait a tick for ondataavailable to fire and push to segments[]
+  await new Promise(r => setTimeout(r, 100));
+
+  // Find best single segment that covers the incident window
+  // Prefer the most recent segment that started before windowStart
+  const allSegs = [...segments];
+  if (!allSegs.length) {
+    hideSaving();
+    showToast('WARN','No footage recorded yet.\nRecord for at least '+BEFORE_SECS+'s first.');
+    resumeAfterIncident(); return;
+  }
+
+  // Find a segment that started before windowStart and ended after windowEnd
+  let bestSeg = null;
+  for (const s of allSegs.slice().reverse()) {
+    if (s.startTs <= windowStart && s.endTs >= windowEnd) { bestSeg=s; break; }
+  }
+
+  // If no single segment covers it, find the most recent segment that started before incidentTs
+  if (!bestSeg) {
+    for (const s of allSegs.slice().reverse()) {
+      if (s.startTs <= incidentTs) { bestSeg=s; break; }
+    }
+  }
+
+  if (!bestSeg) {
+    hideSaving();
+    showToast('WARN','Incident window not covered by buffer.\nRecord for at least '+BEFORE_SECS+'s.');
+    resumeAfterIncident(); return;
+  }
+
+  // bestSeg is a complete, valid, seekable WebM blob  save it directly
+  const mime  = bestSeg.mime || bestSeg.blob.type || 'video/mp4';
+  const ext   = (mime.includes('mp4') || mime.includes('avc')) ? 'mp4' : 'webm';
+  const ts    = new Date(incidentTs);
+  const dtStr = ts.toISOString().replace(/[:.]/g,'-').slice(0,19);
+  const fname = `INCIDENT_${dtStr}.${ext}`;
+  const url   = URL.createObjectURL(bestSeg.blob);
+  const actualDuration = ((bestSeg.endTs - bestSeg.startTs)/1000).toFixed(1);
+  const beforeActual   = ((incidentTs - bestSeg.startTs)/1000).toFixed(1);
+  const afterActual    = ((bestSeg.endTs - incidentTs)/1000).toFixed(1);
+
+  clips.push({
+    id:Date.now(), name:fname, url, blob:bestSeg.blob,
+    size:bestSeg.blob.size, ts:ts.toLocaleString(),
+    address:loc.address, lat:loc.lat, lng:loc.lng, ext,
+    duration:actualDuration, before:beforeActual, after:afterActual
+  });
+  updateClipsUI();
+  hideSaving();
+  autoDownload(url, fname);
+  showToast('OK', `Clip saved! ${actualDuration}s total\n-${beforeActual}s before / +${afterActual}s after\n\n${loc.address||'--'}`);
+  resumeAfterIncident();
+}
+
+function resumeAfterIncident() {
+  stopIncidentCountdown();
+  incidentActive=false; afterTimer=null;
+  // Resume rolling segment recording
+  if (isRecording) startSegment();
+  document.getElementById('incident-btn').disabled=false;
+}
+
+function autoDownload(url,name) {
+  const a=document.createElement('a');
+  a.href=url; a.download=name; a.style.display='none';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>document.body.removeChild(a),1000);
+}
+
+// 
+// CLIPS UI
+// 
+function updateClipsUI() {
+  const n=clips.length;
+  document.getElementById('clip-count').textContent=n;
+  const fc=document.getElementById('clips-fab-count');
+  fc.textContent=n; fc.classList.toggle('has-clips',n>0);
+  renderClipsList();
+}
+function renderClipsList() {
+  const list=document.getElementById('clips-list');
+  document.getElementById('clips-empty').style.display=clips.length?'none':'block';
+  list.querySelectorAll('.clip-item').forEach(e=>e.remove());
+  clips.slice().reverse().forEach(c=>{
+    const el=document.createElement('div'); el.className='clip-item';
+    el.innerHTML=
+      '<div class="clip-info">'+
+        '<div class="clip-name">'+c.name+'</div>'+
+        '<div class="clip-meta">'+c.ts+' &middot; '+(c.size/1048576).toFixed(1)+'MB'+
+          (c.duration?' &middot; '+c.duration+'s':'')+
+          (c.before?' &middot; -'+c.before+'s/+'+c.after+'s':'')+
+        '</div>'+
+        '<div class="clip-addr">'+(c.address||'--')+'</div>'+
+        '<div class="clip-badge">TIME + LOCATION BURNED IN</div>'+
+      '</div>'+
+      '<div class="clip-actions">'+
+        '<button class="clip-btn share-btn" onclick="shareClip('+c.id+')">SHARE</button>'+
+        '<button class="clip-btn icloud-btn" onclick="icloudClip('+c.id+')">iCLOUD</button>'+
+      '</div>';
+    list.appendChild(el);
+  });
+}
+function openClips()  { document.getElementById('clips-panel').classList.add('open'); renderClipsList(); }
+function closeClips() { document.getElementById('clips-panel').classList.remove('open'); }
+async function shareClip(id) {
+  const c=clips.find(x=>x.id===id); if(!c)return;
+  try {
+    const file=new File([c.blob],c.name,{type:c.blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[file]}))
+      await navigator.share({title:'DashCam Incident',text:c.address+'\n'+c.ts,files:[file]});
+    else { autoDownload(c.url,c.name); showToast('DL','File downloaded. Open Files to share.'); }
+  } catch(err){if(err.name!=='AbortError')showToast('ERR',err.message);}
+}
+async function icloudClip(id) {
+  showToast('iCloud','In share sheet:\nSave to Files \u2192 iCloud Drive \u2192 DashCam');
+  await shareClip(id);
+}
+
+// 
+// UI HELPERS
+// 
+function flashViewport() {
+  const el=document.getElementById('flash');
+  el.classList.remove('flash-anim'); void el.offsetWidth; el.classList.add('flash-anim');
+}
+function showSaving(t){document.getElementById('saving-overlay').classList.add('show');setSavingSub(t);}
+function setSavingSub(t){document.getElementById('saving-sub').textContent=t;}
+function hideSaving(){document.getElementById('saving-overlay').classList.remove('show');}
+let toastTimer=null;
+function showToast(icon,msg) {
+  const iconMap={OK:'[OK]',WARN:'[!!]',ERR:'[X]',DL:'[DL]',iCloud:'[iC]'};
+  document.getElementById('toast-icon').textContent=iconMap[icon]||icon;
+  document.getElementById('toast-msg').innerHTML=msg.replace(/\n/g,'<br>');
+  document.getElementById('toast').classList.add('show');
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>document.getElementById('toast').classList.remove('show'),4500);
+}
+let wakeLock=null;
+async function requestWakeLock() {
+  if('wakeLock' in navigator){try{wakeLock=await navigator.wakeLock.request('screen');} catch(e) {}}
+}
+document.addEventListener('visibilitychange',()=>{
+  if(wakeLock&&document.visibilityState==='visible')requestWakeLock();
+});
+</script>
+</body>
+</html>
